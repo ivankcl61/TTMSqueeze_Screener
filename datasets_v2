@@ -1,0 +1,64 @@
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+import os
+import yfinance as yf
+
+# Create datasets directory if it doesn't exist
+if not os.path.exists('datasets'):
+    os.makedirs('datasets')
+
+# Function to fetch S&P 500 tickers from Wikipedia
+def get_sp500_tickers():
+    url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+    response = requests.get(url)
+
+    if response.status_code == 200:
+        soup = BeautifulSoup(response.content, 'lxml')
+        table = soup.find('table', {'class': 'wikitable sortable sticky-header'})  # Find the table by class name
+
+        if table is None:
+            print("No table found with class 'wikitable sortable'. Please check the website structure.")
+            return []
+
+        tickers = []
+
+        # Extract ticker symbols from the table rows
+        for row in table.find_all('tr')[1:]:  # Skip header row
+            cols = row.find_all('td')
+            if cols:
+                ticker = cols[0].text.strip()  # Get the ticker symbol from the first column
+                tickers.append(ticker)
+
+        return tickers
+    else:
+        print("Failed to retrieve data.")
+        return []
+
+
+# Fetch tickers and save to CSV
+sp500_tickers = get_sp500_tickers()
+
+if sp500_tickers:
+    with open('datasets/symbols.csv', 'w') as f:
+        for ticker in sp500_tickers:
+            f.write(f"{ticker}\n")
+    print(f"Saved {len(sp500_tickers)} S&P 500 tickers to datasets/symbols.csv")
+else:
+    print("No tickers found.")
+
+# Download historical stock data for each ticker and save to CSV files
+with open('datasets/symbols.csv') as f:
+    lines = f.read().splitlines()
+    for symbol in lines:
+        print(f"Downloading data for {symbol}...")
+        data = yf.download(symbol, start="2024-01-01", end="2025-01-13")
+
+        # Check if data is empty before saving
+        if not data.empty:
+            data.to_csv(f'datasets/{symbol}.csv')
+            print(f"Saved historical data for {symbol} to datasets/{symbol}.csv")
+        else:
+            print(f"No data found for {symbol}. Skipping...")
+
+print("All downloads complete.")
