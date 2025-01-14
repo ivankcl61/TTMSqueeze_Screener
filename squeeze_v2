@@ -1,0 +1,75 @@
+import pandas as pd
+import os
+import plotly.graph_objects as go
+import yfinance as yf
+
+dataframes = {}
+
+# Define in squeeze function
+def in_squeeze(row):
+    return row['lower_band'] > row['lower_KC'] and row['upper_band'] < row['upper_KC']
+
+# Loop through each file in the datasets directory
+for filename in os.listdir('datasets'):
+    symbol = filename.split(".")[0]  # Extract the symbol from the filename
+
+    # Read the CSV file into a DataFrame
+    df = pd.read_csv(f'datasets/{filename}')
+
+    # Check if DataFrame is empty
+    if df.empty:
+        print(f"No data found in {filename}. Skipping...")
+        continue
+
+    # Convert relevant columns to numeric, handling errors
+    try:
+        df["Open"] = pd.to_numeric(df["Open"], errors='coerce')
+        df["Close"] = pd.to_numeric(df["Close"], errors='coerce')
+        df["High"] = pd.to_numeric(df["High"], errors='coerce')
+        df["Low"] = pd.to_numeric(df["Low"], errors='coerce')
+    except KeyError as e:
+        print(f"KeyError: {e}. Check if the column exists in {filename}.")
+        continue
+
+    # Rename columns only if they match expected length
+    current_columns_count = df.shape[1]
+    if current_columns_count == 6:  # Adjust this based on your actual data structure
+        df.columns = ["Date", "Close", "High", "Low", "Open", "Volume"]
+        df.drop(index=[0, 1], inplace=True)  # Adjust this if necessary
+        df["Date"] = pd.to_datetime(df["Date"])
+
+        # Calculate Bollinger Bands, Keltner Channels, Stadndard Deviation, Average True Range and SMA
+        df["20sma"] = df['Close'].rolling(window=20).mean()
+        df['stddev'] = df['Close'].rolling(window=20).std()
+        df['upper_band'] = df['20sma'] + 2 * df['stddev']
+        df['lower_band'] = df['20sma'] - 2 * df['stddev']
+        df['TR'] = abs(df['High']-df['Low'])
+        df['ATR'] = df['TR'].rolling(window=20).mean()
+        df['upper_KC'] = df['20sma'] + (df['ATR'] * 1.5)
+        df['lower_KC'] = df['20sma'] - (df['ATR'] * 1.5)
+
+        df["squeeze_on"]=df.apply(in_squeeze, axis = 1)
+
+        if len(df) >= 2 and not df.iloc[-1]['squeeze_on'] and df.iloc[-2]['squeeze_on']:
+
+                print(f"{symbol} has started squeezing")
+                dataframes[symbol] = df
+
+
+#Create a candlestick chart using Plotly
+def chart(df):
+    # Define settings for plotly
+    candlestick = go.Candlestick(x=df["Date"], open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"])
+    upper_band = go.Scatter(x=df["Date"], y=df["upper_band"], name='Upper Bollinger Band', line={'color': 'red'})
+    lower_band = go.Scatter(x=df["Date"], y=df["lower_band"], name='Lower Bollinger Band', line={'color': 'blue'})
+    upper_KC = go.Scatter(x=df["Date"], y=df["upper_KC"], name='Upper Keltner Channel', line={'color': 'purple'})
+    lower_KC = go.Scatter(x=df["Date"], y=df["lower_KC"], name='Lower Keltner Channel', line={'color': 'green'})
+
+    fig = go.Figure(data=[candlestick, upper_band, lower_band, upper_KC, lower_KC])
+    fig.layout.xaxis.type='category'
+    fig.layout.xaxis.rangeslider.visible= False
+
+    fig.show()
+
+for symbol, df in dataframes.items():
+    chart(df)
